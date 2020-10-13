@@ -23,6 +23,7 @@ import qualified Control.Exception.Extra as EX
 import qualified Control.Exception.Lifted as LE (try)
 import Control.Monad.IO.Class
 import Control.Monad.STM
+import Data.Function
 import qualified Data.HashTable.IO as H
 import Data.Hashable
 import Data.Int
@@ -62,7 +63,18 @@ coalesce dag vt edges = do
             (\dep -> do
                  res <- TSH.lookup (vertices dag) dep
                  case res of
-                     Just indx -> return indx -- do multi level recursive lookup
+                     Just indx -> do
+                         fix -- do multi level recursive lookup
+                             (\f n -> do
+                                  res2 <- TSH.lookup (vertices dag) n
+                                  case res2 of
+                                      Just ix ->
+                                          if n == ix
+                                              then return ix
+                                              else f (ix)
+                                      Nothing -> return n)
+                             indx
+                         --return indx 
                      Nothing -> return dep)
             edges
     if L.null vals
@@ -91,13 +103,33 @@ coalesce dag vt edges = do
                                             TSH.insert (topologicalSorted dag) head (sq |> vt)
                                 Nothing -> do
                                     TSH.insert (topologicalSorted dag) head (sq |> vt)
-                                    TSH.insert (vertices dag) vt head
+                            TSH.insert (vertices dag) vt head
                             event <- TSH.lookup (dependents dag) vt
                             case event of
                                 Just ev -> liftIO $ putMVar ev head -- value in MVar, vt or head?
                                 Nothing -> return ()
                         Nothing -> do
-                            TSH.insert (topologicalSorted dag) vt (SQ.singleton vt) -- TSH.insert (vertices dag) vt vt -- needed?
+                            TSH.insert (topologicalSorted dag) vt (SQ.singleton vt) -- 
+                            TSH.insert (vertices dag) vt vt -- needed?
+                            -- added below newly
+                            par <-
+                                mapM
+                                    (\dep -> do
+                                         ev <- TSH.lookup (dependents dag) dep
+                                         event <-
+                                             case ev of
+                                                 Just e -> return e
+                                                 Nothing -> newEmptyMVar
+                                         TSH.insert (dependents dag) dep event
+                                         ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (60 * 1000000))
+                                         case ores of
+                                             Right () -> throw InsertTimeoutException
+                                             Left res -> do
+                                                 print ("event!", res)
+                                                 return res)
+                                    vals
+                            let uniq = ST.toList $ ST.fromList par
+                            coalesce dag vt uniq
                 else do
                     TSH.insert (topologicalSorted dag) vt (SQ.singleton vt) -- needed?
                     TSH.insert (vertices dag) vt vt -- needed?

@@ -29,11 +29,11 @@ sequentialInsert reps = do
 asyncInsert :: Int -> IO ([Int])
 asyncInsert reps = do
     dag <- TSDAG.new 1 0
-    Prelude.mapM
+    mapConcurrently -- async
         (\x -> do
              if x > 1
-                 then async $ coalesce dag x [x - 1]
-                 else async $ coalesce dag x [])
+                 then coalesce dag x [x - 1]
+                 else coalesce dag x [])
         [1 .. reps]
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Async:")
