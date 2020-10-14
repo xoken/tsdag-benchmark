@@ -15,7 +15,7 @@ module Network.Xoken.Node.Data.ThreadSafeHashTable
     , insert
     , delete
     , Network.Xoken.Node.Data.ThreadSafeHashTable.lookup
-    , mutate
+    , mutateIO
     , Network.Xoken.Node.Data.ThreadSafeHashTable.mapM_
     , fromList
     , toList
@@ -68,16 +68,29 @@ lookup tsh k = do
     let index = (hash k) `mod` (fromIntegral $ size tsh)
     withMVar ((hashTableList tsh) !! index) (\hx -> H.lookup hx k)
 
-mutate :: (Eq k, Hashable k) => TSHashTable k v -> k -> (Maybe v -> (Maybe v, a)) -> IO a
-mutate tsh k f = do
-    v <- Network.Xoken.Node.Data.ThreadSafeHashTable.lookup tsh k
-    case f v of
-        (Nothing, a) -> do
-            delete tsh k
-            return a
-        (Just v, a) -> do
-            insert tsh k v
-            return a
+mutateIO :: (Eq k, Hashable k) => TSHashTable k v -> k -> (Maybe v -> IO (Maybe v, a)) -> IO a
+mutateIO tsh k f = do
+    let index = (hash k) `mod` (fromIntegral $ size tsh)
+    withMVar
+        ((hashTableList tsh) !! index)
+        (\hx -> do
+             mv <- H.lookup hx k
+             (newval, a) <- f mv
+             case newval of
+                 Just nv -> do
+                     H.insert hx k nv
+                     return a
+                 Nothing -> do
+                     H.delete hx k
+                     return a)
+    -- v <- Network.Xoken.Node.Data.ThreadSafeHashTable.lookup tsh k
+    -- case f v of
+    --     (Nothing, a) -> do
+    --         delete tsh k
+    --         return a
+    --     (Just v, a) -> do
+    --         insert tsh k v
+    --         return a
 
 mapM_ :: ((k, v) -> IO a) -> TSHashTable k v -> IO ()
 mapM_ f tsh = do

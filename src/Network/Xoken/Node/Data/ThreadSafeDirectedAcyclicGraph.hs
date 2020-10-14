@@ -46,6 +46,7 @@ data TSDirectedAcyclicGraph v =
         , topologicalSorted :: !(TSH.TSHashTable v (Seq v)) -- key : value :: head : sequence
         , dependents :: !(TSH.TSHashTable v (MVar v)) -- 
         , baseVertex :: !(v)
+        , lock :: MVar ()
         }
 
 new :: (Eq v, Hashable v, Ord v, Show v) => Int16 -> v -> IO (TSDirectedAcyclicGraph v)
@@ -54,10 +55,14 @@ new vsize def = do
     topoSorted <- TSH.new 1
     dep <- TSH.new 1
     TSH.insert topoSorted def SQ.empty
-    return $ TSDirectedAcyclicGraph vertices topoSorted dep def
+    lock <- newMVar ()
+    return $ TSDirectedAcyclicGraph vertices topoSorted dep def lock
 
 coalesce :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v -> v -> [v] -> IO ()
-coalesce dag vt edges = do
+coalesce dag vt edges
+    -- print (vt)
+ = do
+    takeMVar (lock dag)
     vals <-
         mapM
             (\dep -> do
@@ -77,6 +82,7 @@ coalesce dag vt edges = do
                          --return indx 
                      Nothing -> return dep)
             edges
+    putMVar (lock dag) ()
     if L.null vals
         then do
             baseSeq <- TSH.lookup (topologicalSorted dag) (baseVertex dag)
@@ -93,21 +99,25 @@ coalesce dag vt edges = do
                     case seq of
                         Just sq -> do
                             etry <- TSH.lookup (vertices dag) vt
+                            TSH.insert (vertices dag) vt head
                             case etry of
                                 Just x -> do
                                     hseq <- TSH.lookup (topologicalSorted dag) x
                                     case hseq of
                                         Just hs -> do
                                             TSH.insert (topologicalSorted dag) head (sq <> hs)
+                                            TSH.delete (topologicalSorted dag) x
                                         Nothing -> do
                                             TSH.insert (topologicalSorted dag) head (sq |> vt)
                                 Nothing -> do
                                     TSH.insert (topologicalSorted dag) head (sq |> vt)
-                            TSH.insert (vertices dag) vt head
                             event <- TSH.lookup (dependents dag) vt
                             case event of
                                 Just ev -> liftIO $ putMVar ev head -- value in MVar, vt or head?
                                 Nothing -> return ()
+                            -- if head == (baseVertex dag)
+                            --     then return ()
+                            --     else coalesce dag vt vals
                         Nothing -> do
                             TSH.insert (topologicalSorted dag) vt (SQ.singleton vt) -- 
                             TSH.insert (vertices dag) vt vt -- needed?
@@ -115,18 +125,44 @@ coalesce dag vt edges = do
                             par <-
                                 mapM
                                     (\dep -> do
-                                         ev <- TSH.lookup (dependents dag) dep
-                                         event <-
-                                             case ev of
-                                                 Just e -> return e
-                                                 Nothing -> newEmptyMVar
-                                         TSH.insert (dependents dag) dep event
-                                         ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (60 * 1000000))
-                                         case ores of
-                                             Right () -> throw InsertTimeoutException
-                                             Left res -> do
-                                                 print ("event!", res)
-                                                 return res)
+                                         vrtx <- TSH.lookup (vertices dag) dep
+                                         case vrtx of
+                                             Just vx -> do
+                                                 takeMVar (lock dag)
+                                                 z <-
+                                                     fix -- do multi level recursive lookup
+                                                         (\f n -> do
+                                                              res2 <- TSH.lookup (vertices dag) n
+                                                              case res2 of
+                                                                  Just ix ->
+                                                                      if n == ix
+                                                                          then return ix
+                                                                          else f (ix)
+                                                                  Nothing -> return n)
+                                                         vx
+                                                 putMVar (lock dag) ()
+                                                 return z
+                                             Nothing -> do
+                                                 event <-
+                                                     TSH.mutateIO
+                                                         (dependents dag)
+                                                         dep
+                                                         (\x ->
+                                                              case x of
+                                                                  Just e -> return (x, e)
+                                                                  Nothing -> do
+                                                                      em <- newEmptyMVar
+                                                                      return (Just em, em))
+                                                    --
+                                                 ores <-
+                                                     LA.race
+                                                         (liftIO $ readMVar event)
+                                                         (liftIO $ threadDelay (10 * 1000000))
+                                                 case ores of
+                                                     Right () -> throw InsertTimeoutException
+                                                     Left res -> do
+                                                         print ("event!", res)
+                                                         return res)
                                     vals
                             let uniq = ST.toList $ ST.fromList par
                             coalesce dag vt uniq
@@ -136,20 +172,28 @@ coalesce dag vt edges = do
                     par <-
                         mapM
                             (\dep -> do
-                                 ev <- TSH.lookup (dependents dag) dep
                                  event <-
-                                     case ev of
-                                         Just e -> return e
-                                         Nothing -> newEmptyMVar
-                                 TSH.insert (dependents dag) dep event
-                                 ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (60 * 1000000))
+                                     TSH.mutateIO
+                                         (dependents dag)
+                                         dep
+                                         (\x ->
+                                              case x of
+                                                  Just e -> return (x, e)
+                                                  Nothing -> do
+                                                      em <- newEmptyMVar
+                                                      return (Just em, em))
+                                 --
+                                 ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (10 * 1000000))
                                  case ores of
                                      Right () -> throw InsertTimeoutException
                                      Left res -> do
+                                         print ("event22!", res)
                                          return res)
                             vals
                     let uniq = ST.toList $ ST.fromList par
                     coalesce dag vt uniq
+    verts <- TSH.toList $ vertices dag
+    print ("Vertices: ", verts)
 --
 --
 --

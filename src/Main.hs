@@ -24,6 +24,8 @@ sequentialInsert reps = do
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Sequential:")
     mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    verts <- TSH.toList $ vertices dag
+    print ("Vertices: ", verts)
     return [] -- $ topologicalSorted dag 
 
 asyncInsert :: Int -> IO ([Int])
@@ -38,12 +40,15 @@ asyncInsert reps = do
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Async:")
     mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    verts <- TSH.toList $ vertices dag
+    print ("---------------------------")
+    print ("Vertices: ", verts)
     return [] -- $ topologicalSorted dag 
 
 test :: IO (Bool)
 test = do
-    seq <- sequentialInsert 50
-    asy <- asyncInsert 50
+    seq <- sequentialInsert 100
+    asy <- asyncInsert 100
     return $ seq == asy
 
 main :: IO ()
