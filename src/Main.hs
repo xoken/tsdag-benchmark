@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Concurrent.Async
+import Control.Concurrent.MVar
 import Control.Monad
 import Criterion
 import Criterion.Main
@@ -21,9 +22,9 @@ sequentialInsert reps = do
                  then coalesce dag x [x - 1]
                  else coalesce dag x [])
         [1 .. reps]
-    -- tsd <- TSH.toList $ topologicalSorted dag
-    -- print ("Sequential:")
-    -- mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    tsd <- takeMVar $ topologicalSorted dag
+    print ("Sequential:")
+    print (F.toList tsd)
     verts <- TSH.toList $ vertices dag
     print ("Vertices: ", verts)
     return [] -- $ topologicalSorted dag 
@@ -37,9 +38,9 @@ asyncInsert reps = do
                  then coalesce dag x [x - 1]
                  else coalesce dag x [])
         [1 .. reps]
-    -- tsd <- TSH.toList $ topologicalSorted dag
-    -- print ("Async:")
-    -- mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    tsd <- takeMVar $ topologicalSorted dag
+    print ("Async:")
+    print (F.toList tsd)
     verts <- TSH.toList $ vertices dag
     print ("---------------------------")
     print ("Vertices: ", verts)

@@ -43,7 +43,8 @@ instance Exception DAGException
 
 data TSDirectedAcyclicGraph v =
     TSDirectedAcyclicGraph
-        { vertices :: !(TSH.TSHashTable v v) -- mapping of vertex to head-of-Sequence
+        { vertices :: !(TSH.TSHashTable v (v, Bool)) -- mapping of vertex to head-of-Sequence
+        , topologicalSorted :: !(MVar (Seq v))
         , dependents :: !(TSH.TSHashTable v (MVar v)) -- 
         , baseVertex :: !(v)
         , lock :: MVar ()
@@ -53,9 +54,10 @@ new :: (Eq v, Hashable v, Ord v, Show v) => Int16 -> v -> IO (TSDirectedAcyclicG
 new vsize def = do
     vertices <- TSH.new vsize
     dep <- TSH.new 1
-    TSH.insert vertices def def
+    TSH.insert vertices def (def, True)
     lock <- newMVar ()
-    return $ TSDirectedAcyclicGraph vertices dep def lock
+    topSort <- newMVar (SQ.empty)
+    return $ TSDirectedAcyclicGraph vertices topSort dep def lock
 
 coalesce :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v -> v -> [v] -> IO ()
 coalesce dag vt edges
@@ -67,17 +69,22 @@ coalesce dag vt edges
             (\dep -> do
                  res <- TSH.lookup (vertices dag) dep
                  case res of
-                     Just indx -> do
+                     Just (indx, flag) -> do
                          fix -- do multi level recursive lookup
                              (\f n -> do
                                   res2 <- TSH.lookup (vertices dag) n
                                   case res2 of
-                                      Just ix ->
+                                      Just (ix, fl) ->
                                           if n == ix
                                               then return ix
                                               else do
                                                   y <- f (ix)
-                                                  TSH.insert (vertices dag) n y
+                                                  print ("rett: ", y, " ix: ", ix, " n: ", n, " indx: ", indx)
+                                                  TSH.insert (vertices dag) n (y, True) -- copy to Sequence
+                                                  if y == (baseVertex dag) -- && fl == False
+                                                      then do
+                                                          modifyMVar_ (topologicalSorted dag) (\z -> return $ z |> n)
+                                                      else return ()
                                                   return y
                                       Nothing -> return n)
                              indx
@@ -87,7 +94,8 @@ coalesce dag vt edges
     putMVar (lock dag) ()
     if L.null vals
         then do
-            TSH.insert (vertices dag) vt (baseVertex dag) --
+            TSH.insert (vertices dag) vt (baseVertex dag, True) ---- copy to Sequence
+            modifyMVar_ (topologicalSorted dag) (\z -> return $ z |> vt)
         else do
             let head = vals !! 0
             if L.all (\x -> x == head) vals -- if all are same
@@ -97,7 +105,7 @@ coalesce dag vt edges
                     case seq of
                         Just sq -> do
                             print ("aaa", vt, head)
-                            TSH.insert (vertices dag) vt head
+                            TSH.insert (vertices dag) vt (head, False)
                             event <- TSH.lookup (dependents dag) vt
                             case event of
                                 Just ev -> liftIO $ putMVar ev head -- value in MVar, vt or head?
@@ -105,14 +113,14 @@ coalesce dag vt edges
                             putMVar (lock dag) ()
                         Nothing -> do
                             print ("bbb", vt, head)
-                            TSH.insert (vertices dag) vt vt -- needed?
+                            TSH.insert (vertices dag) vt (vt, False)
                             putMVar (lock dag) ()
                             par <-
                                 mapM
                                     (\dep -> do
                                          vrtx <- TSH.lookup (vertices dag) dep
                                          case vrtx of
-                                             Just vx -> do
+                                             Just (vx, fl) -> do
                                                  return vx
                                              Nothing -> do
                                                  event <-
@@ -138,7 +146,7 @@ coalesce dag vt edges
                             let uniq = ST.toList $ ST.fromList par
                             coalesce dag vt uniq
                 else do
-                    TSH.insert (vertices dag) vt vt -- needed?
+                    TSH.insert (vertices dag) vt (vt, False)
                     par <-
                         mapM
                             (\dep -> do
