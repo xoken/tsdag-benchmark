@@ -13,6 +13,7 @@ module Network.Xoken.Node.Data.ThreadSafeDirectedAcyclicGraph
     ( TSDirectedAcyclicGraph(..)
     , new
     , coalesce
+    , consolidate
     ) where
 
 import Control.Concurrent (threadDelay)
@@ -22,11 +23,14 @@ import Control.Exception
 import qualified Control.Exception.Extra as EX
 import qualified Control.Exception.Lifted as LE (try)
 import Control.Monad.IO.Class
+import Control.Monad.Loops
 import Control.Monad.STM
 import Data.Foldable as FD
+import Data.Foldable as F
 import Data.Function
 import qualified Data.HashTable.IO as H
 import Data.Hashable
+import Data.IORef
 import Data.Int
 import qualified Data.List as L
 import Data.Sequence as SQ
@@ -59,6 +63,48 @@ new vsize def = do
     topSort <- TSH.new 1
     TSH.insert topSort def (SQ.empty)
     return $ TSDirectedAcyclicGraph vertices topSort dep def lock
+
+consolidate :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v -> IO ()
+consolidate dag = do
+    mindex <- TSH.lookupIndex (topologicalSorted dag) (baseVertex dag)
+    case mindex of
+        Just indx -> do
+            indxRef <- newIORef (indx, baseVertex dag)
+            continue <- newIORef True
+            whileM_ (readIORef continue) $ do
+                (ix, ky) <- readIORef indxRef
+                res <- TSH.nextByIndex (topologicalSorted dag) (ky, ix + 1)
+                print ("NEXT: ", res)
+                case res of
+                    Just (index, key, val) -> do
+                        writeIORef indxRef (index, key)
+                        tsd <- TSH.toList $ topologicalSorted dag
+                        mapM (\(h, x) -> do print (h, F.toList x)) tsd
+                        print ("===================================================")
+                        newh <- TSH.lookup (vertices dag) key
+                        case newh of
+                            Just (nh, _) -> do
+                                if nh == key
+                                    then return ()
+                                    else do
+                                        flg <-
+                                            TSH.mutateIO
+                                                (topologicalSorted dag)
+                                                nh
+                                                (\mz ->
+                                                     case mz of
+                                                         Just z -> do
+                                                             print ("merging: ", nh, key)
+                                                             return (Just $ z <> val, True)
+                                                         Nothing -> do
+                                                             print ("nothing: ", nh)
+                                                             return (Nothing, False))
+                                        if flg == True
+                                            then TSH.delete (topologicalSorted dag) key
+                                            else return ()
+                            Nothing -> return ()
+                    Nothing -> writeIORef continue False -- end loop
+    return ()
 
 coalesce :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v -> v -> [v] -> IO ()
 coalesce dag vt edges = do
