@@ -40,9 +40,34 @@ getList x
 asyncInsert :: Int -> IO ([Int])
 asyncInsert reps = do
     dag <- TSDAG.new 0
-    mapConcurrently -- async
-        (\x -> do coalesce dag x $ getList x)
-        [1 .. reps]
+    mapM
+        (\(start, end) -> do
+             mapConcurrently -- async
+                 (\x -> do coalesce dag x $ getList x)
+                 [start .. end]
+             print (start, end))
+        [ (1, 1000)
+        , (1000, 2000)
+        , (2000, 3000)
+        , (3000, 4000)
+        , (4000, 5000)
+        , (5000, 6000)
+        , (6000, 7000)
+        , (7000, 8000)
+        , (8000, 9000)
+        , (9000, 10000)
+        , (10000, 11000)
+        , (11000, 12000)
+        , (12000, 13000)
+        , (13000, 14000)
+        , (14000, 15000)
+        , (15000, 16000)
+        , (16000, 17000)
+        , (17000, 18000)
+        , (18000, 19000)
+        , (19000, 20000)
+        ]
+    print ("####")
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Async:")
     mapM (\(h, x) -> do print (h, F.toList x)) tsd

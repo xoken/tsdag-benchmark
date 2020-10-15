@@ -108,23 +108,26 @@ coalesce dag vt edges = do
         mapM
             (\dep -> do
                  fix -- do multi level recursive lookup
-                     (\recur n flg -> do
+                     (\recur n -> do
                           res2 <- TSH.lookup (vertices dag) n
                           case res2 of
                               Just (ix, fl) ->
                                   if n == ix
                                       then return ix
                                       else do
-                                          y <- recur (ix) False
-                                          rs <- TSH.lookup (vertices dag) n
-                                          let present =
-                                                  case rs of
-                                                      Just (_, f) -> f
-                                                      Nothing -> False
-                                          TSH.insert (vertices dag) n (y, True)
-                                        --   !frag <- TSH.lookup (topologicalSorted dag) n
-                                        --   TSH.delete (topologicalSorted dag) n
-                                          !frag <-
+                                          y <- recur (ix)
+                                          present <-
+                                              TSH.mutateIO
+                                                  (vertices dag)
+                                                  n
+                                                  (\ax ->
+                                                       case ax of
+                                                           Just (_, ff) ->
+                                                               if ff
+                                                                   then return (Just (y, True), True)
+                                                                   else return (Just (y, True), False)
+                                                           Nothing -> return (Just (y, True), False))
+                                          frag <-
                                               TSH.mutateIO
                                                   (topologicalSorted dag)
                                                   n
@@ -134,7 +137,7 @@ coalesce dag vt edges = do
                                                            Nothing -> return (Nothing, Nothing))
                                           TSH.mutateIO
                                               (topologicalSorted dag)
-                                              y
+                                              (y)
                                               (\mz ->
                                                    case mz of
                                                        Just z ->
@@ -149,8 +152,7 @@ coalesce dag vt edges = do
                                           return y
                               Nothing -> do
                                   return n)
-                     dep
-                     True)
+                     dep)
             edges
     putMVar (lock dag) ()
     if L.null vals
