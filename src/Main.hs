@@ -29,14 +29,18 @@ sequentialInsert reps = do
     print ("Vertices: ", verts)
     return [] -- $ topologicalSorted dag 
 
+getList :: Int -> [Int]
+getList x
+    | x > 8 = [x - 1, quot x 2, quot x 3]
+    | x > 4 = [x - 1, quot x 2]
+    | x > 1 = [x - 1]
+    | otherwise = []
+
 asyncInsert :: Int -> IO ([Int])
 asyncInsert reps = do
     dag <- TSDAG.new 1 0
     mapConcurrently -- async
-        (\x -> do
-             if x > 1
-                 then coalesce dag x [x - 1]
-                 else coalesce dag x [])
+        (\x -> do coalesce dag x $ getList x)
         [1 .. reps]
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Async:")
