@@ -42,13 +42,13 @@ asyncInsert reps = do
     print ("Async:")
     mapM (\(h, x) -> do print (h, F.toList x)) tsd
     verts <- TSH.toList $ vertices dag
-    print ("------------VERTICES--------------")
+    print ("-----------------VERTICES-----------------")
     print ("Vertices: ", verts)
-    print ("----------CONSOLIDATED-ONE-----------")
+    print ("----------CONSOLIDATED-PASS-ONE-----------")
     consolidate dag
     tsd <- TSH.toList $ topologicalSorted dag
     mapM (\(h, x) -> do print (h, F.toList x)) tsd
-    print ("----------CONSOLIDATED-TWO-----------")
+    print ("----------CONSOLIDATED-PASS-TWO-----------")
     consolidate dag
     tsd <- TSH.toList $ topologicalSorted dag
     mapM (\(h, x) -> do print (h, F.toList x)) tsd

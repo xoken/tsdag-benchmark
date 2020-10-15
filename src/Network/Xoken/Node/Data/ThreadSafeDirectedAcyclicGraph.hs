@@ -76,33 +76,28 @@ consolidate dag = do
                 res <- TSH.nextByIndex (topologicalSorted dag) (ky, ix + 1)
                 print ("NEXT: ", res)
                 case res of
-                    Just (index, key, val) -> do
-                        writeIORef indxRef (index, key)
+                    Just (index, kn, val) -> do
+                        writeIORef indxRef (index, kn)
                         tsd <- TSH.toList $ topologicalSorted dag
                         mapM (\(h, x) -> do print (h, F.toList x)) tsd
                         print ("===================================================")
-                        newh <- TSH.lookup (vertices dag) key
-                        case newh of
-                            Just (nh, _) -> do
-                                if nh == key
-                                    then return ()
-                                    else do
-                                        flg <-
-                                            TSH.mutateIO
-                                                (topologicalSorted dag)
-                                                nh
-                                                (\mz ->
-                                                     case mz of
-                                                         Just z -> do
-                                                             print ("merging: ", nh, key)
-                                                             return (Just $ z <> val, True)
-                                                         Nothing -> do
-                                                             print ("nothing: ", nh)
-                                                             return (Nothing, False))
-                                        if flg == True
-                                            then TSH.delete (topologicalSorted dag) key
-                                            else return ()
-                            Nothing -> return ()
+                        fix
+                            (\recur key -> do
+                                 newh <- TSH.lookup (vertices dag) key
+                                 case newh of
+                                     Just (nh, _) -> do
+                                         if nh == key
+                                             then return ()
+                                             else do
+                                                 mx <- TSH.lookup (topologicalSorted dag) nh
+                                                 case mx of
+                                                     Just m -> do
+                                                         TSH.insert (topologicalSorted dag) nh (m <> (kn <| val))
+                                                         TSH.delete (topologicalSorted dag) kn
+                                                     Nothing -> do
+                                                         recur nh
+                                     Nothing -> return ())
+                            (kn)
                     Nothing -> writeIORef continue False -- end loop
     return ()
 
@@ -121,7 +116,6 @@ coalesce dag vt edges = do
                                       then return ix
                                       else do
                                           y <- recur (ix) False
-                                          -- print ("rett: ", y, " ix: ", ix, " n: ", n)
                                           TSH.insert (vertices dag) n (y, True)
                                           !frag <- TSH.lookup (topologicalSorted dag) n
                                           TSH.delete (topologicalSorted dag) n
@@ -166,7 +160,7 @@ coalesce dag vt edges = do
                             TSH.insert (vertices dag) vt (head, False)
                             event <- TSH.lookup (dependents dag) vt
                             case event of
-                                Just ev -> liftIO $ putMVar ev () -- value in MVar, vt or head?
+                                Just ev -> liftIO $ putMVar ev ()
                                 Nothing -> return ()
                             putMVar (lock dag) ()
                         Nothing -> do
