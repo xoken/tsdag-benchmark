@@ -116,6 +116,11 @@ coalesce dag vt edges = do
                                       then return ix
                                       else do
                                           y <- recur (ix) False
+                                          rs <- TSH.lookup (vertices dag) n
+                                          let present =
+                                                  case rs of
+                                                      Just (_, f) -> f
+                                                      Nothing -> False
                                           TSH.insert (vertices dag) n (y, True)
                                         --   !frag <- TSH.lookup (topologicalSorted dag) n
                                         --   TSH.delete (topologicalSorted dag) n
@@ -136,7 +141,10 @@ coalesce dag vt edges = do
                                                            case frag of
                                                                Just fg -> do
                                                                    return (Just $ z <> fg, ())
-                                                               Nothing -> return (Just $ z |> n, ())
+                                                               Nothing -> do
+                                                                   if present
+                                                                       then return (Just $ z, ())
+                                                                       else return (Just $ z |> n, ())
                                                        Nothing -> return (Just $ SQ.singleton n, ()))
                                           return y
                               Nothing -> do
