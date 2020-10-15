@@ -15,7 +15,7 @@ import Prelude
 
 sequentialInsert :: Int -> IO ([Int])
 sequentialInsert reps = do
-    dag <- TSDAG.new 1 0
+    dag <- TSDAG.new 0
     Prelude.mapM
         (\x -> do
              if x > 1
@@ -31,14 +31,14 @@ sequentialInsert reps = do
 
 getList :: Int -> [Int]
 getList x
-    | x > 8 = [x - 1, quot x 2, quot x 3]
+    | x > 8 = [x - 1, quot x 2, (quot x 2) - 1]
     | x > 4 = [x - 1, quot x 2]
     | x > 1 = [x - 1]
     | otherwise = []
 
 asyncInsert :: Int -> IO ([Int])
 asyncInsert reps = do
-    dag <- TSDAG.new 1 0
+    dag <- TSDAG.new 0
     mapConcurrently -- async
         (\x -> do coalesce dag x $ getList x)
         [1 .. reps]
@@ -62,7 +62,7 @@ test :: IO (Bool)
 test
     --seq <- sequentialInsert 200
  = do
-    asy <- asyncInsert 2000
+    asy <- asyncInsert 10000
     return False -- $ seq == asy
 
 main :: IO ()
