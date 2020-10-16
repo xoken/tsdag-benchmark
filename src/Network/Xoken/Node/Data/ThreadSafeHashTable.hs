@@ -83,14 +83,6 @@ mutateIO tsh k f = do
                  Nothing -> do
                      H.delete hx k
                      return a)
-    -- v <- Network.Xoken.Node.Data.ThreadSafeHashTable.lookup tsh k
-    -- case f v of
-    --     (Nothing, a) -> do
-    --         delete tsh k
-    --         return a
-    --     (Just v, a) -> do
-    --         insert tsh k v
-    --         return a
 
 mapM_ :: ((k, v) -> IO a) -> TSHashTable k v -> IO ()
 mapM_ f tsh = do
@@ -106,7 +98,6 @@ fromList size kv = do
     traverse (\(k, v) -> insert tsh k v) kv
     return tsh
 
---    
 lookupIndex :: (Eq k, Hashable k) => TSHashTable k v -> k -> IO (Maybe (Word))
 lookupIndex tsh k = do
     let index = (hash k) `mod` (fromIntegral $ size tsh)
