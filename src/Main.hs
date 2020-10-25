@@ -37,7 +37,7 @@ sequentialInsert reps = do
 
 getList :: Int -> [Int]
 getList x
-    | x `mod` 1000 == 0 = [x - 1]
+    -- | x `mod` 1000 == 0 = [x - 1]
     -- | x > 8 = [x - 1, quot x 2, (quot x 2) - 1]
     | x > 4 = [x - 1, quot x 2]
     | x > 1 = [x - 1]
@@ -52,7 +52,7 @@ asyncInsert reps = do
                  (\x -> do coalesce dag x (getList x) (fromIntegral x) accumulate)
                  [start .. end]
              print (start, end))
-        [ (1, 10)
+        [ (1, 200)
         -- , (1000, 2000)
         -- , (2000, 3000)
         -- , (3000, 4000)
@@ -94,7 +94,7 @@ asyncInsert reps = do
 
 test :: IO (Bool)
 test = do
-    seq <- sequentialInsert 10
+    seq <- sequentialInsert 200
     asy <- asyncInsert 20000
     return False -- $ seq == asy
 

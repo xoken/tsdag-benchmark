@@ -134,9 +134,6 @@ coalesce ::
     -> IO ()
 coalesce dag vt edges aval cumulate = do
     takeMVar (lock dag)
-    -- print ("vt", vt, "aval", aval)
-    verts <- TSH.toList $ vertices dag
-    -- print ("Vertices: ", verts)
     vals <-
         mapM
             (\dep -> do
@@ -159,7 +156,7 @@ coalesce dag vt edges aval cumulate = do
                                                                if ff
                                                                    then return (Just (y, True, aa), True)
                                                                    else return (Just (y, True, aa), False)
-                                                           Nothing -> return (Just (y, True, 100), False))
+                                                           Nothing -> return (Just (y, True, 0), False))
                                           frag <-
                                               TSH.mutateIO
                                                   (topologicalSorted dag)
@@ -176,14 +173,17 @@ coalesce dag vt edges aval cumulate = do
                                                        Just (z, za) ->
                                                            case frag of
                                                                Just (fg, fa) -> do
-                                                                   print ("parent", z, "frag:", fg)
-                                                                   print (za, " ++ ", fa, "<=>", cumulate za fa)
-                                                                   return (Just (z <> fg, cumulate za fa), ())
+                                                                   print ("main", z, "frag:", fg)
+                                                                   print
+                                                                       (za, fa, v2, "<=>", cumulate (cumulate za fa) v2)
+                                                                   return
+                                                                       ( Just (z <> fg, cumulate (cumulate za fa) v2)
+                                                                       , ())
                                                                Nothing -> do
                                                                    if present
                                                                        then return (Just (z, za), ())
                                                                        else do
-                                                                           print (za, " ++ ", v2, "=", cumulate za v2)
+                                                                           print (za, v2, "=", cumulate za v2)
                                                                            return (Just (z |> n, cumulate za v2), ())
                                                        Nothing -> return (Just (SQ.singleton n, v2), ()))
                                           return y
