@@ -26,11 +26,11 @@ sequentialInsert reps = do
         [1 .. reps]
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Sequential:")
-    mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
     verts <- TSH.toList $ vertices dag
     print ("Vertices: ", verts)
     print ("Sync:")
-    mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
     return [] -- $ topologicalSorted dag 
   where
     accumulate = (\x a -> a + x)
@@ -76,18 +76,18 @@ asyncInsert reps = do
     print ("####")
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Async:")
-    mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
     verts <- TSH.toList $ vertices dag
     print ("-----------------VERTICES-----------------")
     print ("Vertices: ", verts)
     print ("----------CONSOLIDATED-PASS-ONE-----------")
     consolidate dag accumulate
     tsd <- TSH.toList $ topologicalSorted dag
-    mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
     print ("----------CONSOLIDATED-PASS-TWO-----------")
     consolidate dag accumulate
     tsd <- TSH.toList $ topologicalSorted dag
-    mapM (\(h, x) -> do print (h, F.toList x)) tsd
+    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
     return [] -- $ topologicalSorted dag 
   where
     accumulate = (\x a -> a + x)
