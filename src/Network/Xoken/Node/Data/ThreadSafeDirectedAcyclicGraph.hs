@@ -39,8 +39,9 @@ import Data.Text as T
 import qualified Network.Xoken.Node.Data.ThreadSafeHashTable as TSH
 import Numeric as N
 
-data DAGException =
-    InsertTimeoutException
+data DAGException
+    = InsertTimeoutException
+    | UnexpectedException
     deriving (Show)
 
 instance Exception DAGException
@@ -86,43 +87,42 @@ getPrimaryTopologicalSorted dag = do
 
 consolidate :: (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a -> (a -> a -> a) -> IO ()
 consolidate dag cumulate = do
-    mindex <- TSH.lookupIndex (topologicalSorted dag) (baseVertex dag)
-    print ("mindex", mindex)
-    case mindex of
-        Just indx -> do
-            indxRef <- newIORef (indx, baseVertex dag)
-            continue <- newIORef True
-            whileM_ (readIORef continue) $ do
-                (ix, ky) <- readIORef indxRef
-                res <- TSH.nextByIndex (topologicalSorted dag) (ky, ix + 1)
-                print ("NEXT: ", res)
-                case res of
-                    Just (index, kn, (val, av)) -> do
-                        writeIORef indxRef (index, kn)
-                        tsd <- TSH.toList $ topologicalSorted dag
-                        mapM (\(h, x) -> do print (h, F.toList x)) tsd
-                        print ("===================================================")
-                        fix
-                            (\recur key -> do
-                                 newh <- TSH.lookup (vertices dag) key
-                                 case newh of
-                                     Just (nh, _, na) -> do
-                                         if nh == key
-                                             then return ()
-                                             else do
-                                                 mx <- TSH.lookup (topologicalSorted dag) nh
-                                                 case mx of
-                                                     Just (m, am) -> do
-                                                         TSH.insert
-                                                             (topologicalSorted dag)
-                                                             nh
-                                                             ((m <> (kn <| val)), cumulate av am)
-                                                         TSH.delete (topologicalSorted dag) kn
-                                                     Nothing -> do
-                                                         recur nh
-                                     Nothing -> return ())
-                            (kn)
-                    Nothing -> writeIORef continue False -- end loop
+    rr <- TSH.toList (topologicalSorted dag)
+    let !keys = fst $ L.unzip rr
+    mapM
+        (\(key) -> do
+             res <- TSH.lookup (topologicalSorted dag) key
+             case res of
+                 Just (seq, val) -> do
+                     print ("====>", key, seq, val)
+                     newh <- TSH.lookup (vertices dag) key
+                     case newh of
+                         Just (nhx, _, na) -> do
+                             if nhx == key
+                                 then return ()
+                                 else do
+                                     fix
+                                         (\recur nh -> do
+                                              mx <- TSH.lookup (topologicalSorted dag) nh
+                                              case mx of
+                                                  Just (m, am) -> do
+                                                      print ("inserting", nh, key, ((m <> (key <| seq))))
+                                                      TSH.insert
+                                                          (topologicalSorted dag)
+                                                          nh
+                                                          ((m <> (key <| seq)), cumulate val am)
+                                                      TSH.delete (topologicalSorted dag) key
+                                                  Nothing -> do
+                                                      print (" Key-head NOT found !", key, nh)
+                                                      yz <- TSH.lookup (vertices dag) nh
+                                                      case yz of
+                                                          Just (x, _, _) -> recur x
+                                                      return ())
+                                         nhx
+                         Nothing -> do
+                             print (" NOT found !", key)
+                             return ())
+        keys
     return ()
 
 coalesce ::
@@ -251,7 +251,7 @@ coalesce dag vt edges aval cumulate = do
                                                          em <- newEmptyMVar
                                                          putStrLn $ "NEW EVENT " ++ (show head)
                                                          return (Just em, em))
-                                    ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (10 * 1000000))
+                                    ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (5 * 1000000))
                                     case ores of
                                         Right () -> do
                                             putStrLn $ "InsertTimeoutException " ++ (show head)
@@ -282,7 +282,7 @@ coalesce dag vt edges aval cumulate = do
                                                               em <- newEmptyMVar
                                                               return (Just em, em))
                                             --
-                                         ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (10 * 1000000))
+                                         ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (5 * 1000000))
                                          case ores of
                                              Right () -> do
                                                  putStrLn $ "InsertTimeoutException (dep) " ++ (show dep)
