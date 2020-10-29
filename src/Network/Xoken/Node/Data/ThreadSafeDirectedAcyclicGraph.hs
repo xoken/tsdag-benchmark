@@ -87,6 +87,7 @@ getPrimaryTopologicalSorted dag = do
 consolidate :: (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a -> (a -> a -> a) -> IO ()
 consolidate dag cumulate = do
     mindex <- TSH.lookupIndex (topologicalSorted dag) (baseVertex dag)
+    print ("mindex", mindex)
     case mindex of
         Just indx -> do
             indxRef <- newIORef (indx, baseVertex dag)
@@ -203,27 +204,39 @@ coalesce dag vt edges aval cumulate = do
                      case mz of
                          Just (z, za) -> return (Just (z |> vt, cumulate za aval), ())
                          Nothing -> return (Just (SQ.singleton vt, aval), ()))
+            event <- TSH.lookup (dependents dag) vt
+            case event of
+                Just ev -> do
+                    putStrLn $ "PUT (no edges)" ++ (show vt)
+                    liftIO $ putMVar ev ()
+                Nothing -> do
+                    putStrLn $ "NOTHING (no edges)" ++ (show vt)
+                    return ()
         else do
             let head = vals !! 0
             if L.all (\x -> x == head) vals -- if all are same
-                    -- takeMVar (lock dag)
                 then do
                     seq <- TSH.lookup (vertices dag) (head)
                     case seq of
                         Just (_, _, vv) -> do
                             TSH.insert (vertices dag) vt (head, False, aval)
-                            event <- TSH.lookup (dependents dag) vt
-                            case event of
-                                Just ev -> liftIO $ putMVar ev ()
-                                Nothing -> return ()
-                            -- putMVar (lock dag) ()
+                            TSH.mutateIO
+                                (dependents dag)
+                                vt
+                                (\evnt ->
+                                     case evnt of
+                                         Just ev -> do
+                                             putStrLn $ "PUT " ++ (show vt)
+                                             liftIO $ putMVar ev ()
+                                             return (Nothing, ())
+                                         Nothing -> do
+                                             putStrLn $ "NOTHING " ++ (show vt)
+                                             return (Nothing, ()))
                         Nothing -> do
                             TSH.insert (vertices dag) vt (vt, False, aval)
-                            -- putMVar (lock dag) ()
                             vrtx <- TSH.lookup (vertices dag) head
                             case vrtx of
-                                Just (vx, fl, _) -> do
-                                    return head -- vx
+                                Just (vx, fl, _) -> return ()
                                 Nothing -> do
                                     event <-
                                         TSH.mutateIO
@@ -231,15 +244,19 @@ coalesce dag vt edges aval cumulate = do
                                             head
                                             (\x ->
                                                  case x of
-                                                     Just e -> return (x, e)
+                                                     Just e -> do
+                                                         putStrLn $ "EVENT EXISTS " ++ (show head)
+                                                         return (x, e)
                                                      Nothing -> do
                                                          em <- newEmptyMVar
+                                                         putStrLn $ "NEW EVENT " ++ (show head)
                                                          return (Just em, em))
-                                    ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (60 * 1000000))
+                                    ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (10 * 1000000))
                                     case ores of
-                                        Right () -> throw InsertTimeoutException
-                                        Left () -> do
-                                            return head
+                                        Right () -> do
+                                            putStrLn $ "InsertTimeoutException " ++ (show head)
+                                            -- throw InsertTimeoutException
+                                        Left () -> return ()
                             coalesce dag vt [head] aval cumulate
                 else do
                     TSH.insert (vertices dag) vt (vt, False, aval)
@@ -257,14 +274,19 @@ coalesce dag vt edges aval cumulate = do
                                                  dep
                                                  (\x ->
                                                       case x of
-                                                          Just e -> return (x, e)
+                                                          Just e -> do
+                                                              putStrLn $ "EVENT EXISTS (dep)" ++ (show dep)
+                                                              return (x, e)
                                                           Nothing -> do
+                                                              putStrLn $ "NEW EVENT (dep)" ++ (show dep)
                                                               em <- newEmptyMVar
                                                               return (Just em, em))
                                             --
-                                         ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (60 * 1000000))
+                                         ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (10 * 1000000))
                                          case ores of
-                                             Right () -> throw InsertTimeoutException
+                                             Right () -> do
+                                                 putStrLn $ "InsertTimeoutException (dep) " ++ (show dep)
+                                                 throw InsertTimeoutException
                                              Left () -> do
                                                  return dep)
                             vals

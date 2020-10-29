@@ -39,7 +39,7 @@ getList :: Int -> [Int]
 getList x
     -- | x `mod` 1000 == 0 = [x - 1]
     -- | x > 8 = [x - 1, quot x 2, (quot x 2) - 1]
-    | x > 4 = [x - 1, quot x 2]
+    -- | x > 4 = [x - 1, quot x 2]
     | x > 1 = [x - 1]
     | otherwise = []
 
