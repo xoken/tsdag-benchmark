@@ -178,7 +178,7 @@ coalesce dag vt edges aval cumulate = do
                                                                    print
                                                                        (za, fa, v2, "<=>", cumulate (cumulate za fa) v2)
                                                                    return
-                                                                       ( Just (z <> fg, cumulate (cumulate za fa) v2)
+                                                                       ( Just (z <> (n <| fg), cumulate (cumulate za fa) v2)
                                                                        , ())
                                                                Nothing -> do
                                                                    if present
@@ -251,6 +251,8 @@ coalesce dag vt edges aval cumulate = do
                                                          em <- newEmptyMVar
                                                          putStrLn $ "NEW EVENT " ++ (show head)
                                                          return (Just em, em))
+                                    -- readMVar event
+                                    -- return ()
                                     ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (5 * 1000000))
                                     case ores of
                                         Right () -> do
@@ -282,11 +284,14 @@ coalesce dag vt edges aval cumulate = do
                                                               em <- newEmptyMVar
                                                               return (Just em, em))
                                             --
+                                        --  readMVar event
+                                        --  return dep)
                                          ores <- LA.race (liftIO $ readMVar event) (liftIO $ threadDelay (5 * 1000000))
                                          case ores of
                                              Right () -> do
                                                  putStrLn $ "InsertTimeoutException (dep) " ++ (show dep)
-                                                 throw InsertTimeoutException
+                                                 --  throw InsertTimeoutException
+                                                 return dep
                                              Left () -> do
                                                  return dep)
                             vals
