@@ -53,6 +53,7 @@ data TSDirectedAcyclicGraph v a =
         , dependents :: !(TSH.TSHashTable v (MVar ())) -- 
         , baseVertex :: !(v)
         , lock :: !(MVar ())
+        , origEdges :: !(TSH.TSHashTable v [v])
         }
 
 new :: (Eq v, Hashable v, Ord v, Show v, Num a) => v -> a -> Int16 -> Int16 -> IO (TSDirectedAcyclicGraph v a)
@@ -63,7 +64,8 @@ new def initval vertexParts topSortParts = do
     lock <- newMVar ()
     topSort <- TSH.new topSortParts
     TSH.insert topSort def (SQ.empty, initval)
-    return $ TSDirectedAcyclicGraph vertices topSort dep def lock
+    oedg <- TSH.new vertexParts
+    return $ TSDirectedAcyclicGraph vertices topSort dep def lock oedg
 
 getTopologicalSortedForest :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v a -> IO ([(v, Maybe v)])
 getTopologicalSortedForest dag = do
@@ -125,6 +127,9 @@ consolidate dag cumulate = do
         keys
     return ()
 
+getOrigEdges :: (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a -> v -> IO (Maybe [v])
+getOrigEdges dag vt = TSH.lookup (origEdges dag) (vt)
+
 coalesce ::
        (Eq v, Hashable v, Ord v, Show v, Show a, Num a)
     => TSDirectedAcyclicGraph v a
@@ -134,6 +139,13 @@ coalesce ::
     -> (a -> a -> a)
     -> IO ()
 coalesce dag vt edges aval cumulate = do
+    TSH.mutateIO
+        (origEdges dag)
+        vt
+        (\x ->
+             case x of
+                 Just _ -> return (x, ())
+                 Nothing -> return (Just edges, ()))
     takeMVar (lock dag)
     vals <-
         mapM
@@ -178,7 +190,9 @@ coalesce dag vt edges aval cumulate = do
                                                                    print
                                                                        (za, fa, v2, "<=>", cumulate (cumulate za fa) v2)
                                                                    return
-                                                                       ( Just (z <> (n <| fg), cumulate (cumulate za fa) v2)
+                                                                       ( Just
+                                                                             ( z <> (n <| fg)
+                                                                             , cumulate (cumulate za fa) v2)
                                                                        , ())
                                                                Nothing -> do
                                                                    if present
