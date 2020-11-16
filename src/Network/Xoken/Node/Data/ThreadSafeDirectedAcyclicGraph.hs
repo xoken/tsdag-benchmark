@@ -144,16 +144,14 @@ rollOver ::
     -> Int16
     -> Int16
     -> IO (TSDirectedAcyclicGraph v a)
-rollOver olddag filterList def initval vertexParts topSortParts = do
-    forest <- TSH.toList $ topologicalSorted olddag
-    let univPre = Prelude.foldl (|>) SQ.empty forest
-    newdag <- Network.Xoken.Node.Data.ThreadSafeDirectedAcyclicGraph.new def initval vertexParts topSortParts
-    mapM
-        (\x
-            -- getOrig olddag
-            -- coalesce newdag
-          -> do undefined)
-        univPre
+rollOver olddag filterList def initval vertexParts topSortParts
+    -- filterMap <- TSH.fromList 10 filterList
+    -- forest <- TSH.toList $ topologicalSorted olddag
+    -- let univPre = Prelude.foldl (|>) SQ.empty forest
+ = do
+    newdag <- new def initval vertexParts topSortParts
+    mapM_ (\x -> do TSH.delete (origEdges olddag) x) filterList
+    TSH.mapM_ (\(vt, (ed, va)) -> do coalesce newdag vt ed va (+)) (origEdges olddag)
     return newdag
 
 coalesce ::
