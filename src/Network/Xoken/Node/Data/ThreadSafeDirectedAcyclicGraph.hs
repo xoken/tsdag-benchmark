@@ -14,6 +14,10 @@ module Network.Xoken.Node.Data.ThreadSafeDirectedAcyclicGraph
     , new
     , coalesce
     , consolidate
+    , getTopologicalSortedForest
+    , getPrimaryTopologicalSorted
+    , getOrigEdges
+    , rollOver
     ) where
 
 import Control.Concurrent (threadDelay)
@@ -53,7 +57,7 @@ data TSDirectedAcyclicGraph v a =
         , dependents :: !(TSH.TSHashTable v (MVar ())) -- 
         , baseVertex :: !(v)
         , lock :: !(MVar ())
-        , origEdges :: !(TSH.TSHashTable v [v])
+        , origEdges :: !(TSH.TSHashTable v ([v], a))
         }
 
 new :: (Eq v, Hashable v, Ord v, Show v, Num a) => v -> a -> Int16 -> Int16 -> IO (TSDirectedAcyclicGraph v a)
@@ -127,8 +131,30 @@ consolidate dag cumulate = do
         keys
     return ()
 
-getOrigEdges :: (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a -> v -> IO (Maybe [v])
+getOrigEdges ::
+       (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a -> v -> IO (Maybe ([v], a))
 getOrigEdges dag vt = TSH.lookup (origEdges dag) (vt)
+
+rollOver ::
+       (Eq v, Hashable v, Ord v, Show v, Show a, Num a)
+    => TSDirectedAcyclicGraph v a
+    -> [v]
+    -> v
+    -> a
+    -> Int16
+    -> Int16
+    -> IO (TSDirectedAcyclicGraph v a)
+rollOver olddag filterList def initval vertexParts topSortParts = do
+    forest <- TSH.toList $ topologicalSorted olddag
+    let univPre = Prelude.foldl (|>) SQ.empty forest
+    newdag <- Network.Xoken.Node.Data.ThreadSafeDirectedAcyclicGraph.new def initval vertexParts topSortParts
+    mapM
+        (\x
+            -- getOrig olddag
+            -- coalesce newdag
+          -> do undefined)
+        univPre
+    return newdag
 
 coalesce ::
        (Eq v, Hashable v, Ord v, Show v, Show a, Num a)
@@ -145,7 +171,7 @@ coalesce dag vt edges aval cumulate = do
         (\x ->
              case x of
                  Just _ -> return (x, ())
-                 Nothing -> return (Just edges, ()))
+                 Nothing -> return (Just (edges, aval), ()))
     takeMVar (lock dag)
     vals <-
         mapM
