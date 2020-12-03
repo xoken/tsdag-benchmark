@@ -50,33 +50,34 @@ data DAGException
 
 instance Exception DAGException
 
-data TSDirectedAcyclicGraph v a =
+data TSDirectedAcyclicGraph v a m =
     TSDirectedAcyclicGraph
         { vertices :: !(TSH.TSHashTable v (v, Bool, a)) -- mapping of vertex to head-of-Sequence
-        , topologicalSorted :: !(TSH.TSHashTable v (Seq v, a))
+        , topologicalSorted :: !(TSH.TSHashTable v (Seq v, a, m))
         , dependents :: !(TSH.TSHashTable v (MVar ())) -- 
         , baseVertex :: !(v)
         , lock :: !(MVar ())
         , origEdges :: !(TSH.TSHashTable v ([v], a))
+        -- , state :: !((Int, a, m))
         }
 
-new :: (Eq v, Hashable v, Ord v, Show v, Num a) => v -> a -> Int16 -> Int16 -> IO (TSDirectedAcyclicGraph v a)
-new def initval vertexParts topSortParts = do
+new :: (Eq v, Hashable v, Ord v, Show v, Num a) => v -> a -> m -> Int16 -> Int16 -> IO (TSDirectedAcyclicGraph v a m)
+new def initval mkt vertexParts topSortParts = do
     vertices <- TSH.new vertexParts
     dep <- TSH.new 1
     TSH.insert vertices def (def, True, 0)
     lock <- newMVar ()
     topSort <- TSH.new topSortParts
-    TSH.insert topSort def (SQ.empty, initval)
+    TSH.insert topSort def (SQ.empty, initval, mkt)
     oedg <- TSH.new vertexParts
     return $ TSDirectedAcyclicGraph vertices topSort dep def lock oedg
 
-getTopologicalSortedForest :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v a -> IO ([(v, Maybe v)])
+getTopologicalSortedForest :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v a m -> IO ([(v, Maybe v)])
 getTopologicalSortedForest dag = do
     forest <- TSH.toList $ topologicalSorted dag
     return $
         L.concatMap
-            (\(vt, (dg, _)) -> do
+            (\(vt, (dg, _, _)) -> do
                  let rt =
                          if vt == baseVertex dag
                              then Nothing
@@ -84,79 +85,87 @@ getTopologicalSortedForest dag = do
                  L.map (\x -> do (x, rt)) (FD.toList dg))
             forest
 
-getPrimaryTopologicalSorted :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v a -> IO ([v])
+getPrimaryTopologicalSorted :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v a m -> IO ([v])
 getPrimaryTopologicalSorted dag = do
     primary <- TSH.lookup (topologicalSorted dag) (baseVertex dag)
     case primary of
-        Just (pdag, _) -> return $ FD.toList pdag
+        Just (pdag, _, _) -> return $ FD.toList pdag
         Nothing -> return []
 
-consolidate :: (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a -> (a -> a -> a) -> IO ()
-consolidate dag cumulate = do
-    rr <- TSH.toList (topologicalSorted dag)
-    let !keys = fst $ L.unzip rr
-    mapM
-        (\(key) -> do
-             res <- TSH.lookup (topologicalSorted dag) key
-             case res of
-                 Just (seq, val) -> do
-                     print ("====>", key, seq, val)
-                     newh <- TSH.lookup (vertices dag) key
-                     case newh of
-                         Just (nhx, _, na) -> do
-                             if nhx == key
-                                 then return ()
-                                 else do
-                                     fix
-                                         (\recur nh -> do
-                                              mx <- TSH.lookup (topologicalSorted dag) nh
-                                              case mx of
-                                                  Just (m, am) -> do
-                                                      print ("inserting", nh, key, ((m <> (key <| seq))))
-                                                      TSH.insert
-                                                          (topologicalSorted dag)
-                                                          nh
-                                                          ((m <> (key <| seq)), cumulate val am)
-                                                      TSH.delete (topologicalSorted dag) key
-                                                  Nothing -> do
-                                                      print (" Key-head NOT found !", key, nh)
-                                                      yz <- TSH.lookup (vertices dag) nh
-                                                      case yz of
-                                                          Just (x, _, _) -> recur x
-                                                      return ())
-                                         nhx
-                         Nothing -> do
-                             print (" NOT found !", key)
-                             return ())
-        keys
-    return ()
+getCurrentPrimaryTopologicalState ::
+       (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v a m -> IO ((Int, a, m))
+getCurrentPrimaryTopologicalState dag = do
+    primary <- TSH.lookup (topologicalSorted dag) (baseVertex dag)
+    case primary of
+        Just (pdag, va, mp) -> return (SQ.length pdag, va, mp)
 
+-- consolidate ::
+--        (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a m -> (a -> a -> a) -> IO ()
+-- consolidate dag cumulate = do
+--     rr <- TSH.toList (topologicalSorted dag)
+--     let !keys = fst $ L.unzip rr
+--     mapM
+--         (\(key) -> do
+--              res <- TSH.lookup (topologicalSorted dag) key
+--              case res of
+--                  Just (seq, val, _) -> do
+--                      print ("====>", key, seq, val)
+--                      newh <- TSH.lookup (vertices dag) key
+--                      case newh of
+--                          Just (nhx, _, na) -> do
+--                              if nhx == key
+--                                  then return ()
+--                                  else do
+--                                      fix
+--                                          (\recur nh -> do
+--                                               mx <- TSH.lookup (topologicalSorted dag) nh
+--                                               case mx of
+--                                                   Just (m, am, _) -> do
+--                                                       print ("inserting", nh, key, ((m <> (key <| seq))))
+--                                                       TSH.insert
+--                                                           (topologicalSorted dag)
+--                                                           nh
+--                                                           ((m <> (key <| seq)), cumulate val am)
+--                                                       TSH.delete (topologicalSorted dag) key
+--                                                   Nothing -> do
+--                                                       print (" Key-head NOT found !", key, nh)
+--                                                       yz <- TSH.lookup (vertices dag) nh
+--                                                       case yz of
+--                                                           Just (x, _, _) -> recur x
+--                                                       return ())
+--                                          nhx
+--                          Nothing -> do
+--                              print (" NOT found !", key)
+--                              return ())
+--         keys
+--     return ()
 getOrigEdges ::
-       (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a -> v -> IO (Maybe ([v], a))
+       (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a m -> v -> IO (Maybe ([v], a))
 getOrigEdges dag vt = TSH.lookup (origEdges dag) (vt)
 
 rollOver ::
        (Eq v, Hashable v, Ord v, Show v, Show a, Num a)
-    => TSDirectedAcyclicGraph v a
+    => TSDirectedAcyclicGraph v a m
     -> [v]
     -> v
     -> a
+    -> m
     -> Int16
     -> Int16
-    -> IO (TSDirectedAcyclicGraph v a)
-rollOver olddag filterList def initval vertexParts topSortParts
+    -> IO (TSDirectedAcyclicGraph v a m)
+rollOver olddag filterList def initval mkt vertexParts topSortParts
     -- filterMap <- TSH.fromList 10 filterList
     -- forest <- TSH.toList $ topologicalSorted olddag
     -- let univPre = Prelude.foldl (|>) SQ.empty forest
  = do
-    newdag <- new def initval vertexParts topSortParts
+    newdag <- new def initval mkt vertexParts topSortParts
     mapM_ (\x -> do TSH.delete (origEdges olddag) x) filterList
     TSH.mapM_ (\(vt, (ed, va)) -> do coalesce newdag vt ed va (+)) (origEdges olddag)
     return newdag
 
 coalesce ::
        (Eq v, Hashable v, Ord v, Show v, Show a, Num a)
-    => TSDirectedAcyclicGraph v a
+    => TSDirectedAcyclicGraph v a m
     -> v
     -> [v]
     -> a
