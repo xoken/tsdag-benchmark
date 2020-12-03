@@ -80,11 +80,11 @@ asyncInsert reps = do
     print ("-----------------VERTICES-----------------")
     print ("Vertices: ", verts)
     print ("----------CONSOLIDATED-PASS-ONE-----------")
-    consolidate dag (+) (-)
+    consolidate dag (+) (\q p -> q)
     tsd <- TSH.toList $ topologicalSorted dag
     mapM (\(h, (x, y, z)) -> do print (h, F.toList x, y, z)) tsd
     print ("----------CONSOLIDATED-PASS-TWO-----------")
-    consolidate dag (+) (-)
+    consolidate dag (+) (\q p -> q)
     tsd <- TSH.toList $ topologicalSorted dag
     mapM (\(h, (x, y, z)) -> do print (h, F.toList x, y, z)) tsd
     return [] -- $ topologicalSorted dag 
