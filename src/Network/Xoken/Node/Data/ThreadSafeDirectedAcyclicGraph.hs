@@ -58,19 +58,19 @@ data TSDirectedAcyclicGraph v a m =
         , baseVertex :: !(v)
         , lock :: !(MVar ())
         , origEdges :: !(TSH.TSHashTable v ([v], a))
-        -- , state :: !((Int, a, m))
+        , initState :: !(m)
         }
 
 new :: (Eq v, Hashable v, Ord v, Show v, Num a) => v -> a -> m -> Int16 -> Int16 -> IO (TSDirectedAcyclicGraph v a m)
-new def initval mkt vertexParts topSortParts = do
+new def initval inist vertexParts topSortParts = do
     vertices <- TSH.new vertexParts
     dep <- TSH.new 1
     TSH.insert vertices def (def, True, 0)
     lock <- newMVar ()
     topSort <- TSH.new topSortParts
-    TSH.insert topSort def (SQ.empty, initval, mkt)
+    TSH.insert topSort def (SQ.empty, initval, inist)
     oedg <- TSH.new vertexParts
-    return $ TSDirectedAcyclicGraph vertices topSort dep def lock oedg
+    return $ TSDirectedAcyclicGraph vertices topSort dep def lock oedg inist
 
 getTopologicalSortedForest :: (Eq v, Hashable v, Ord v, Show v) => TSDirectedAcyclicGraph v a m -> IO ([(v, Maybe v)])
 getTopologicalSortedForest dag = do
@@ -99,52 +99,59 @@ getCurrentPrimaryTopologicalState dag = do
     case primary of
         Just (pdag, va, mp) -> return (SQ.length pdag, va, mp)
 
--- consolidate ::
---        (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a m -> (a -> a -> a) -> IO ()
--- consolidate dag cumulate = do
---     rr <- TSH.toList (topologicalSorted dag)
---     let !keys = fst $ L.unzip rr
---     mapM
---         (\(key) -> do
---              res <- TSH.lookup (topologicalSorted dag) key
---              case res of
---                  Just (seq, val, _) -> do
---                      print ("====>", key, seq, val)
---                      newh <- TSH.lookup (vertices dag) key
---                      case newh of
---                          Just (nhx, _, na) -> do
---                              if nhx == key
---                                  then return ()
---                                  else do
---                                      fix
---                                          (\recur nh -> do
---                                               mx <- TSH.lookup (topologicalSorted dag) nh
---                                               case mx of
---                                                   Just (m, am, _) -> do
---                                                       print ("inserting", nh, key, ((m <> (key <| seq))))
---                                                       TSH.insert
---                                                           (topologicalSorted dag)
---                                                           nh
---                                                           ((m <> (key <| seq)), cumulate val am)
---                                                       TSH.delete (topologicalSorted dag) key
---                                                   Nothing -> do
---                                                       print (" Key-head NOT found !", key, nh)
---                                                       yz <- TSH.lookup (vertices dag) nh
---                                                       case yz of
---                                                           Just (x, _, _) -> recur x
---                                                       return ())
---                                          nhx
---                          Nothing -> do
---                              print (" NOT found !", key)
---                              return ())
---         keys
---     return ()
+consolidate ::
+       (Eq v, Hashable v, Ord v, Show v, Show a, Num a)
+    => TSDirectedAcyclicGraph v a m
+    -> (a -> a -> a)
+    -> (m -> [v] -> m)
+    -> IO ()
+consolidate dag cumulate upstate = do
+    rr <- TSH.toList (topologicalSorted dag)
+    let !keys = fst $ L.unzip rr
+    mapM
+        (\(key) -> do
+             res <- TSH.lookup (topologicalSorted dag) key
+             case res of
+                 Just (seq, val, _) -> do
+                     print ("====>", key, seq, val)
+                     newh <- TSH.lookup (vertices dag) key
+                     case newh of
+                         Just (nhx, _, na) -> do
+                             if nhx == key
+                                 then return ()
+                                 else do
+                                     fix
+                                         (\recur nh -> do
+                                              mx <- TSH.lookup (topologicalSorted dag) nh
+                                              case mx of
+                                                  Just (m, am, mcs) -> do
+                                                      print ("inserting", nh, key, ((m <> (key <| seq))))
+                                                      TSH.insert
+                                                          (topologicalSorted dag)
+                                                          nh
+                                                          ( (m <> (key <| seq))
+                                                          , cumulate val am
+                                                          , upstate mcs (FD.toList $ (key <| seq)))
+                                                      TSH.delete (topologicalSorted dag) key
+                                                  Nothing -> do
+                                                      print (" Key-head NOT found !", key, nh)
+                                                      yz <- TSH.lookup (vertices dag) nh
+                                                      case yz of
+                                                          Just (x, _, _) -> recur x
+                                                      return ())
+                                         nhx
+                         Nothing -> do
+                             print (" NOT found !", key)
+                             return ())
+        keys
+    return ()
+
 getOrigEdges ::
        (Eq v, Hashable v, Ord v, Show v, Show a, Num a) => TSDirectedAcyclicGraph v a m -> v -> IO (Maybe ([v], a))
 getOrigEdges dag vt = TSH.lookup (origEdges dag) (vt)
 
 rollOver ::
-       (Eq v, Hashable v, Ord v, Show v, Show a, Num a)
+       (Eq v, Hashable v, Ord v, Show v, Show a, Num a, Show m)
     => TSDirectedAcyclicGraph v a m
     -> [v]
     -> v
@@ -152,26 +159,25 @@ rollOver ::
     -> m
     -> Int16
     -> Int16
+    -> (a -> a -> a)
+    -> (m -> [v] -> m)
     -> IO (TSDirectedAcyclicGraph v a m)
-rollOver olddag filterList def initval mkt vertexParts topSortParts
-    -- filterMap <- TSH.fromList 10 filterList
-    -- forest <- TSH.toList $ topologicalSorted olddag
-    -- let univPre = Prelude.foldl (|>) SQ.empty forest
- = do
+rollOver olddag filterList def initval mkt vertexParts topSortParts cumulate upstate = do
     newdag <- new def initval mkt vertexParts topSortParts
     mapM_ (\x -> do TSH.delete (origEdges olddag) x) filterList
-    TSH.mapM_ (\(vt, (ed, va)) -> do coalesce newdag vt ed va (+)) (origEdges olddag)
+    TSH.mapM_ (\(vt, (ed, va)) -> do coalesce newdag vt ed va cumulate upstate) (origEdges olddag)
     return newdag
 
 coalesce ::
-       (Eq v, Hashable v, Ord v, Show v, Show a, Num a)
+       (Eq v, Hashable v, Ord v, Show v, Show a, Num a, Show m)
     => TSDirectedAcyclicGraph v a m
     -> v
     -> [v]
     -> a
     -> (a -> a -> a)
+    -> (m -> [v] -> m)
     -> IO ()
-coalesce dag vt edges aval cumulate = do
+coalesce dag vt edges aval cumulate upstate = do
     TSH.mutateIO
         (origEdges dag)
         vt
@@ -216,24 +222,43 @@ coalesce dag vt edges aval cumulate = do
                                               (y)
                                               (\mz ->
                                                    case mz of
-                                                       Just (z, za) ->
+                                                       Just (z, za, zcs) ->
                                                            case frag of
-                                                               Just (fg, fa) -> do
+                                                               Just (fg, fa, fcs) -> do
                                                                    print ("main", z, "frag:", fg)
                                                                    print
-                                                                       (za, fa, v2, "<=>", cumulate (cumulate za fa) v2)
+                                                                       ( za
+                                                                       , fa
+                                                                       , v2
+                                                                       , "<=>"
+                                                                       , cumulate (cumulate za fa) v2
+                                                                       , upstate zcs (FD.toList $ n <| fg))
                                                                    return
                                                                        ( Just
                                                                              ( z <> (n <| fg)
-                                                                             , cumulate (cumulate za fa) v2)
+                                                                             , cumulate (cumulate za fa) v2
+                                                                             , upstate zcs (FD.toList $ n <| fg))
                                                                        , ())
                                                                Nothing -> do
                                                                    if present
-                                                                       then return (Just (z, za), ())
+                                                                       then return (Just (z, za, zcs), ())
                                                                        else do
-                                                                           print (za, v2, "=", cumulate za v2)
-                                                                           return (Just (z |> n, cumulate za v2), ())
-                                                       Nothing -> return (Just (SQ.singleton n, v2), ()))
+                                                                           print
+                                                                               ( za
+                                                                               , v2
+                                                                               , "="
+                                                                               , cumulate za v2
+                                                                               , upstate zcs [n])
+                                                                           return
+                                                                               ( Just
+                                                                                     ( z |> n
+                                                                                     , cumulate za v2
+                                                                                     , upstate zcs [n])
+                                                                               , ())
+                                                       Nothing ->
+                                                           return
+                                                               ( Just (SQ.singleton n, v2, upstate (initState dag) [n])
+                                                               , ()))
                                           return y
                               Nothing -> do
                                   return n)
@@ -249,8 +274,8 @@ coalesce dag vt edges aval cumulate = do
                 (baseVertex dag)
                 (\mz ->
                      case mz of
-                         Just (z, za) -> return (Just (z |> vt, cumulate za aval), ())
-                         Nothing -> return (Just (SQ.singleton vt, aval), ()))
+                         Just (z, za, zcs) -> return (Just (z |> vt, cumulate za aval, upstate zcs [vt]), ())
+                         Nothing -> return (Just (SQ.singleton vt, aval, upstate (initState dag) [vt]), ()))
             event <- TSH.lookup (dependents dag) vt
             case event of
                 Just ev -> do
@@ -306,7 +331,7 @@ coalesce dag vt edges aval cumulate = do
                                             putStrLn $ "InsertTimeoutException " ++ (show head)
                                             -- throw InsertTimeoutException
                                         Left () -> return ()
-                            coalesce dag vt [head] aval cumulate
+                            coalesce dag vt [head] aval cumulate upstate
                 else do
                     TSH.insert (vertices dag) vt (vt, False, aval)
                     par <-
@@ -343,7 +368,7 @@ coalesce dag vt edges aval cumulate = do
                                                  return dep)
                             vals
                     let uniq = ST.toList $ ST.fromList par
-                    coalesce dag vt uniq aval cumulate
+                    coalesce dag vt uniq aval cumulate upstate
     -- verts <- TSH.toList $ vertices dag
     -- print ("Vertices: ", verts)
 --

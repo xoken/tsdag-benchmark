@@ -8,6 +8,7 @@ import Criterion
 import Criterion.Main
 import Data.ByteString
 import Data.Foldable as F
+import Data.List as L
 import Data.Serialize
 import Data.Serialize.Put
 import Data.Word
@@ -17,23 +18,21 @@ import Prelude
 
 sequentialInsert :: Int -> IO ([Int])
 sequentialInsert reps = do
-    dag <- TSDAG.new 0 (0 :: Word64) 100 5
+    dag <- TSDAG.new 0 (0 :: Word64) (99) 100 5
     Prelude.mapM
         (\x -> do
              if x > 1
-                 then coalesce dag x [x - 1] (fromIntegral x) accumulate
-                 else coalesce dag x [] (fromIntegral x) accumulate)
+                 then coalesce dag x [x - 1] (fromIntegral x) (+) (\x y -> x)
+                 else coalesce dag x [] (fromIntegral x) (+) (\x y -> x))
         [1 .. reps]
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Sequential:")
-    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
+    mapM (\(h, (x, y, z)) -> do print (h, F.toList x, y, z)) tsd
     verts <- TSH.toList $ vertices dag
     print ("Vertices: ", verts)
     print ("Sync:")
-    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
+    mapM (\(h, (x, y, z)) -> do print (h, F.toList x, y, z)) tsd
     return [] -- $ topologicalSorted dag 
-  where
-    accumulate = (\x a -> a + x)
 
 getList :: Int -> [Int]
 getList x
@@ -45,11 +44,11 @@ getList x
 
 asyncInsert :: Int -> IO ([Int])
 asyncInsert reps = do
-    dag <- TSDAG.new 0 (0 :: Word64) 100 5
+    dag <- TSDAG.new 0 (0 :: Word64) (99) 100 5
     mapM
         (\(start, end) -> do
              mapConcurrently -- async
-                 (\x -> do coalesce dag x (getList x) (fromIntegral x) accumulate)
+                 (\x -> do coalesce dag x (getList x) (fromIntegral x) (+) (\q p -> q))
                  [start .. end]
              print (start, end))
         [ (1, 200)
@@ -76,21 +75,19 @@ asyncInsert reps = do
     print ("####")
     tsd <- TSH.toList $ topologicalSorted dag
     print ("Async:")
-    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
+    mapM (\(h, (x, y, z)) -> do print (h, F.toList x, y, z)) tsd
     verts <- TSH.toList $ vertices dag
     print ("-----------------VERTICES-----------------")
     print ("Vertices: ", verts)
     print ("----------CONSOLIDATED-PASS-ONE-----------")
-    consolidate dag accumulate
+    consolidate dag (+) (-)
     tsd <- TSH.toList $ topologicalSorted dag
-    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
+    mapM (\(h, (x, y, z)) -> do print (h, F.toList x, y, z)) tsd
     print ("----------CONSOLIDATED-PASS-TWO-----------")
-    consolidate dag accumulate
+    consolidate dag (+) (-)
     tsd <- TSH.toList $ topologicalSorted dag
-    mapM (\(h, (x, y)) -> do print (h, F.toList x, y)) tsd
+    mapM (\(h, (x, y, z)) -> do print (h, F.toList x, y, z)) tsd
     return [] -- $ topologicalSorted dag 
-  where
-    accumulate = (\x a -> a + x)
 
 test :: IO (Bool)
 test = do
